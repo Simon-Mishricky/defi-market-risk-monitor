@@ -20,13 +20,29 @@ Most liquidation simulators stop at counting how many positions get liquidated a
 
 In the Burdett-Judd equilibrium, bots decide whether to post quotes by weighing the expected profit against the cost of participation (gas). When that trade-off deteriorates — because φᵐ falls as liquidity is consumed, or because κ rises during network congestion — fewer bots post competitive quotes. In the limit, no bot posts at all. This is a flash crash: not just bad debt, but a complete breakdown of the price discovery mechanism.
 
-This simulator tracks **F**, the per-cycle probability that no competitive quote is posted, derived from the equilibrium in Mishricky (2025). F rises endogenously as the cascade progresses. It is calibrated from three observable quantities:
+This simulator tracks **F**, the per-cycle probability that no competitive quote is posted, derived from the equilibrium in Mishricky (2025). F rises endogenously as the cascade progresses, and — critically — **F feeds back into the cascade itself**.
+
+---
+
+## The feedback loop
+
+F is not merely a risk indicator computed alongside the cascade. It is wired into the cascade engine.
+
+At the start of each round, the simulator draws from a Bernoulli(F) distribution. If the draw fires — with probability F — no competitive quote is posted that round. Liquidation bots do not participate. Positions that would have been cleared remain underwater. Bad debt accrues on already-insolvent positions. Available stablecoin liquidity does not recover, because no debt was cleared.
+
+At the end of the round, F is recalculated from the new (lower) liquidity level. The next round's draw is against a higher F. This is the doom loop:
+
+```
+cascade drains liquidity → φᵐ falls → F rises → bots exit → liquidity drains further
+```
+
+The dashboard's **Bot Participation Model** toggle lets you switch between this endogenous mode and the open-loop behaviour (bots always participate) to observe the difference directly. Bot-absent rounds are highlighted in orange on the cascade chart and marked on the F trajectory.
+
+F is calibrated from three observable quantities:
 
 - **Gas cost per liquidation** (κ in the model) — high gas makes liquidation unprofitable, bots exit
 - **Stablecoin liquidity depth as a fraction of total debt** (φᵐ) — as liquidations consume liquidity, this falls
 - **Collateral volatility** (Γ) — wider price swings widen the book but also increase execution risk
-
-As the cascade progresses, liquidity drains and F rises. The dashboard shows this transition in real time.
 
 ---
 
@@ -47,8 +63,6 @@ From these, `fetch_live.py` generates 1,000 synthetic positions weighted by each
 
 **Fallback behaviour:** if the API is unreachable (network timeout, endpoint change), the dashboard automatically falls back to the synthetic pool and displays a status message. The synthetic pool is independently calibrated to Aave V3 Ethereum statistics as of March 2026 (DeFiLlama, Aave app).
 
-To toggle between data sources, use the **Data Source** radio button at the top of the dashboard.
-
 ---
 
 ## The conservation law
@@ -59,7 +73,7 @@ The central theoretical result is a **conservation law** (Mishricky 2025, Footno
 MSE · F = (κ / φᵐ)²
 ```
 
-This says that the product of price dispersion (MSE) and flash crash probability (F) is determined entirely by the ratio of posting costs to liquidity. The practical implication: **a protocol can show low F while generating massive bad debt**, because the bad debt raises MSE even as F appears controlled. The 40% and 50% drop scenarios in this simulator reproduce exactly that pattern — $48M and $174M in bad debt respectively, both with F remaining in the STABLE range. Standard risk monitors would not flag either scenario as critical.
+This says that the product of price dispersion (MSE) and flash crash probability (F) is determined entirely by the ratio of posting costs to liquidity. The practical implication: **a protocol can show low F while generating massive bad debt**, because the bad debt raises MSE even as F appears controlled. The 40% and 50% drop scenarios reproduce exactly that pattern — $48M and $174M in bad debt respectively, both with F remaining in the STABLE range. Standard risk monitors would not flag either scenario as critical.
 
 ---
 
@@ -81,7 +95,7 @@ The model implements the equilibrium from Mishricky (2025), which combines the B
 - Proposition 12: Speculative premium
 - Conservation law: `MSE · F = (κ / φᵐ)²`
 
-**Interpreting F:** F is a *per-cycle* probability — the chance that no competitive quote is posted in a single auction round. Small per-cycle values compound rapidly across the thousands of quote cycles that occur each day. At 1,000 quote cycles per hour, the daily flash crash probability `1 - (1-F)^24000` is approximately 70% at the STABLE boundary (F = 0.00005) and effectively 100% at the CRITICAL boundary (F = 0.00050). The thresholds therefore reflect meaningfully distinct risk regimes despite the small absolute values of F.
+**Interpreting F:** F is a *per-cycle* probability — the chance that no competitive quote is posted in a single round. Small per-cycle values compound rapidly across the thousands of quote cycles that occur each day. At 1,000 quote cycles per hour, the daily flash crash probability `1 - (1-F)^24000` is approximately 70% at the STABLE boundary (F = 0.00005) and effectively 100% at the CRITICAL boundary (F = 0.00050). The thresholds therefore reflect meaningfully distinct risk regimes despite the small absolute values of F.
 
 Market status thresholds calibrated to a $1.8B Aave V3-equivalent pool:
 
@@ -111,7 +125,7 @@ defi-liquidation-sim/
 ├── fetch_aave.py          # Synthetic pool calibrated to Aave V3 Ethereum (offline)
 ├── fetch_live.py          # Live Aave V3 data via official GraphQL API (no key required)
 ├── agents.py              # BorrowerAgent class with health factor calculation
-├── simulate.py            # Cascade loop with bad debt accounting and theory scoring
+├── simulate.py            # Cascade loop with Bernoulli(F) bot feedback and bad debt accounting
 ├── theory.py              # BurdettJuddDeFi class implementing Mishricky (2025)
 ├── dashboard.py           # Plotly Dash interactive dashboard
 ├── test_theory.py         # Gas/liquidity stress tests
@@ -137,15 +151,13 @@ python dashboard.py
 
 Open [http://127.0.0.1:8050](http://127.0.0.1:8050) in your browser.
 
-Use the **Data Source** toggle to switch between synthetic and live Aave V3 data. Live mode fetches current reserve parameters from the Aave API; if the connection fails it falls back to synthetic automatically.
-
 ### Run the simulation directly
 
 ```bash
 python simulate.py
 ```
 
-Runs five benchmark scenarios (10%–50% price drops) and prints round-by-round cascade results with theoretical scores.
+Runs five benchmark scenarios (10%–50% price drops) and prints round-by-round cascade results with theoretical scores, including which rounds had no bot participation.
 
 ### Test the live data feed
 
@@ -168,20 +180,22 @@ python test_speculation.py   # Analyse speculative premium (Proposition 12)
 ## Dashboard features
 
 - **Data source toggle** — switch between live Aave V3 API data and synthetic offline pool
+- **Bot participation model toggle** — endogenous (Bernoulli F feedback) or open-loop (bots always participate)
 - **4 crisis scenario presets** with one-click switching
 - **Interactive sliders** for price drop (5–60%), liquidity (1–80%), and gas cost ($20–500)
-- **10 summary statistics** including bad debt, cascade rounds, initial/final F, and market status
-- **4 charts:** liquidation cascade by round, θ and F evolution, equilibrium bid/ask distributions, full stress test
+- **8 summary statistics** including bad debt, cascade rounds, rounds bots were absent, initial/final F, and market status
+- **4 charts:** liquidation cascade by round (with bot-absent rounds highlighted), θ and F evolution, equilibrium bid/ask distributions, full stress test
 
 ---
 
 ## Limitations and extensions
 
-The conservation law result — that bad debt and flash crash risk can decouple, with F elevated and the liquidation market near-collapse even when bad debt is minimal — is reproduced consistently across scenarios. This is the failure mode that standard risk monitors miss: a protocol can look solvent while the market mechanism that keeps it solvent is breaking down. The live data feed provides current reserve parameters, but full quantitative validation of F against empirical liquidation gap frequency requires historical time-series of on-chain liquidation events (March 2020, November 2022) which are not yet integrated.
+The conservation law result — that bad debt and flash crash risk can decouple, with F elevated and the liquidation market near-collapse even when bad debt is minimal — is reproduced consistently across scenarios. This is the failure mode that standard risk monitors miss: a protocol can look solvent while the market mechanism that keeps it solvent is breaking down.
 
-The position pool is also single-asset by construction — each simulated borrower is assigned to one reserve. Real Aave positions are often multi-collateral, which affects both health factor dynamics and the liquidation incentive calculation.
+The live data feed provides current reserve parameters, but full quantitative validation of F against empirical liquidation gap frequency requires historical time-series of on-chain liquidation events (March 2020, November 2022) which are not yet integrated. The position pool is also single-asset by construction — real Aave positions are often multi-collateral, which affects both health factor dynamics and the liquidation incentive calculation.
 
 Natural extensions:
+
 - Historical backtesting of F against on-chain liquidation gap events
 - Multi-collateral positions (mixed ETH/wBTC/stablecoin collateral)
 - Cross-protocol contagion (Aave ↔ Compound ↔ Morpho)

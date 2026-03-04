@@ -76,7 +76,31 @@ app.layout = html.Div([
             html.Label("Gas Cost per Liquidation (USD)"),
             dcc.Slider(id="gas-cost", min=20, max=500, step=20, value=80,
                        marks={i: f"${i}" for i in range(20, 520, 80)}),
-        ], style={"marginBottom": "30px"}),
+        ], style={"marginBottom": "10px"}),
+
+        # Feedback toggle
+        html.Div([
+            html.Label("Bot Participation Model: ",
+                       style={"fontFamily": "Arial", "fontSize": "14px", "marginRight": "10px"}),
+            dcc.RadioItems(
+                id="feedback-mode",
+                options=[
+                    {"label": "  Endogenous (Bernoulli F feedback)", "value": "on"},
+                    {"label": "  Open-loop (bots always participate)", "value": "off"},
+                ],
+                value="on",
+                inline=True,
+                style={"fontFamily": "Arial", "fontSize": "14px", "display": "inline-block"}
+            ),
+        ], style={"marginTop": "10px", "marginBottom": "5px"}),
+
+        html.P(
+            "Endogenous: each round, bots participate with probability (1 − F). "
+            "When they don't, positions stay underwater and liquidity continues to drain, "
+            "raising F further — the doom loop runs in the simulation, not just the README.",
+            style={"fontFamily": "Arial", "fontSize": "12px",
+                   "color": "#777", "fontStyle": "italic", "marginBottom": "5px"}
+        ),
 
     ], style={"padding": "20px", "backgroundColor": "#f9f9f9",
               "borderRadius": "8px", "marginBottom": "30px"}),
@@ -116,8 +140,9 @@ app.layout = html.Div([
     Input("liquidity-pct", "value"),
     Input("gas-cost", "value"),
     Input("data-source", "value"),
+    Input("feedback-mode", "value"),
 )
-def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_source):
+def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_source, feedback_mode):
 
     preset_map = {
         "normal":    (30, 40, 80),
@@ -137,10 +162,11 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         price_drop, liquidity_pct, gas_cost = preset_map[scenario_preset]
 
     description = preset_descriptions.get(scenario_preset, "")
+    use_feedback = (feedback_mode == "on")
 
-    print(f"Running: preset={scenario_preset} drop={price_drop}% liquidity={liquidity_pct}% gas=${gas_cost}")
+    print(f"Running: preset={scenario_preset} drop={price_drop}% liquidity={liquidity_pct}% gas=${gas_cost} feedback={use_feedback}")
 
-    # --- Generate pool (shared across pre-cascade calibration and chart 3) ---
+    # --- Generate pool ---
     data_status = ""
     if data_source == "live" and LIVE_AVAILABLE:
         try:
@@ -152,10 +178,11 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
     else:
         positions = generate_aave_positions(n=1000)
         data_status = "Synthetic data (Aave V3 calibrated)" if data_source == "synthetic" else "Live data unavailable — using synthetic"
+
     total_debt = positions['debt_usd'].sum()
     stablecoin_depth = total_debt * (liquidity_pct / 100)
 
-    # --- Pre-cascade initial F (before any liquidations occur) ---
+    # --- Pre-cascade initial F ---
     try:
         initial_model = calibrate_from_positions(positions, float(gas_cost), stablecoin_depth, 0.05)
         initial_F = initial_model.flash_crash_prob
@@ -170,13 +197,16 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
     results, agents = run_cascade(
         price_drop_pct=price_drop / 100,
         gas_usd=float(gas_cost),
-        initial_liquidity_pct=liquidity_pct / 100
+        initial_liquidity_pct=liquidity_pct / 100,
+        use_feedback=use_feedback,
+        rng_seed=42,
     )
 
     total_liquidated = sum(1 for a in agents if a.liquidated)
     total_bad_debt = results['bad_debt_usd'].sum()
     final_F = results['F (crash prob)'].iloc[-1]
     final_status = results['market_status'].iloc[-1]
+    final_participation = results['participation_rate'].iloc[-1] if 'participation_rate' in results.columns else 1.0
 
     def status_color(s):
         return {"STABLE": "green", "ELEVATED RISK": "orange",
@@ -195,8 +225,10 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         stat_box("Bad Debt", f"${total_bad_debt/1e6:.1f}M",
                  color="red" if total_bad_debt > 0 else "green"),
         stat_box("Cascade Rounds", str(len(results))),
-        stat_box("Initial F (pre-cascade)", f"{initial_F:.7f}"),
-        stat_box("Final F (post-cascade)", f"{final_F:.7f}"),
+        stat_box("Crash Risk (pre-cascade)", f"{1-(1-initial_F)**1000:.1%}"),
+        stat_box("Crash Risk (post-cascade)", f"{1-(1-final_F)**1000:.1%}"),
+        stat_box("Final Participation Rate", f"{final_participation:.1%}",
+                 color="red" if final_participation < 0.5 else ("orange" if final_participation < 0.9 else "green")),
         stat_box("Initial Status", initial_status, color=status_color(initial_status)),
         stat_box("Final Status", final_status, color=status_color(final_status)),
     ]
@@ -212,17 +244,21 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         name='Price', line=dict(color='steelblue', width=2), yaxis='y2'
     ))
     fig1.update_layout(
-        title="Liquidation Cascade by Round", xaxis_title="Round",
+        title="Liquidation Cascade by Round",
+        xaxis_title="Round",
         yaxis=dict(title="Liquidations", side="left"),
         yaxis2=dict(title="Price (relative)", side="right", overlaying="y"),
         legend=dict(x=0.7, y=0.99), template="plotly_white"
     )
 
     # --- Chart 2: Theory ---
-    # Prepend round 0 (pre-cascade) so the chart shows the full trajectory
+    CYCLES = 1000
     rounds = [0] + list(results['round'])
     thetas = [initial_theta] + list(results['theta'])
-    fs     = [initial_F]     + list(results['F (crash prob)'])
+    # Convert per-cycle F to per-1000-cycle crash probability for legibility
+    raw_fs = [initial_F] + list(results['F (crash prob)'])
+    fs_1000 = [1 - (1 - f) ** CYCLES for f in raw_fs]
+    participation = [1.0] + list(results['participation_rate']) if 'participation_rate' in results.columns else [1.0] * len(rounds)
 
     fig2 = go.Figure()
     fig2.add_trace(go.Scatter(
@@ -230,58 +266,113 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         name='θ (quote intensity)', line=dict(color='green', width=2), yaxis='y'
     ))
     fig2.add_trace(go.Scatter(
-        x=rounds, y=fs,
-        name='F (flash crash prob)',
+        x=rounds, y=fs_1000,
+        name='P(crash | 1000 cycles)',
         line=dict(color='red', width=2, dash='dash'), yaxis='y2'
     ))
+    if use_feedback:
+        fig2.add_trace(go.Scatter(
+            x=rounds, y=participation,
+            name='Bot participation rate',
+            line=dict(color='orange', width=2, dash='dot'), yaxis='y2'
+        ))
+
     fig2.update_layout(
         title="Mishricky (2025): θ and F During Cascade", xaxis_title="Round",
         xaxis=dict(tickvals=rounds, ticktext=["Pre"] + [str(r) for r in results['round']]),
         yaxis=dict(title="θ (quote intensity)", side="left"),
-        yaxis2=dict(title="F (flash crash probability)", side="right", overlaying="y"),
+        yaxis2=dict(title="Probability (per 1000 cycles)", side="right", overlaying="y",
+                    tickformat=".0%", range=[0, 1]),
         legend=dict(x=0.5, y=0.99), template="plotly_white"
     )
 
-    # --- Chart 3: Distributions (calibrated to pre-cascade initial conditions) ---
-    try:
-        model = initial_model
-
+    # --- Chart 3: Distributions — pre and post cascade ---
+    # X-axis is in basis points from par (price=1.0), so sub-bps spread
+    # widening is legible. Negative = bid side, positive = ask side.
+    def dist_pdfs_bps(model, n=300):
+        """Return ask/bid positions in bps from par, plus PDFs and inner edges."""
         p_hat = 1.0
-        ask_lower = p_hat + model.kappa / model.phi_m
-        ask_upper = p_hat + model.Gamma
-        bid_lower = p_hat - model.Gamma
-        bid_upper = p_hat - model.kappa / model.phi_m
+        ask_lo_bps = (model.kappa / model.phi_m) * 10000
+        ask_hi_bps = model.Gamma * 10000
+        bid_hi_bps = -(model.kappa / model.phi_m) * 10000
+        bid_lo_bps = -model.Gamma * 10000
 
-        prices_ask = np.linspace(ask_lower, ask_upper, 300)
-        prices_bid = np.linspace(bid_lower, bid_upper, 300)
+        prices_ask_bps = np.linspace(ask_lo_bps, ask_hi_bps, n)
+        prices_bid_bps = np.linspace(bid_lo_bps, bid_hi_bps, n)
 
-        ask_cdf = [model.ask_distribution(p) for p in prices_ask]
-        bid_cdf = [model.bid_distribution(p) for p in prices_bid]
-        ask_pdf = np.gradient(ask_cdf, prices_ask)
-        bid_pdf = np.gradient(bid_cdf, prices_bid)
+        # CDF evaluated at actual prices, then gradient in bps space
+        prices_ask = p_hat + prices_ask_bps / 10000
+        prices_bid = p_hat + prices_bid_bps / 10000
+        ask_pdf = np.gradient([model.ask_distribution(p) for p in prices_ask], prices_ask_bps)
+        bid_pdf = np.gradient([model.bid_distribution(p) for p in prices_bid], prices_bid_bps)
+        return prices_ask_bps, prices_bid_bps, ask_pdf, bid_pdf, ask_lo_bps, bid_hi_bps
 
+    try:
         fig3 = go.Figure()
-        fig3.add_trace(go.Scatter(
-            x=prices_ask, y=ask_pdf, fill='tozeroy', name='Ask density',
-            line=dict(color='red'), fillcolor='rgba(255,0,0,0.2)'
-        ))
-        fig3.add_trace(go.Scatter(
-            x=prices_bid, y=bid_pdf, fill='tozeroy', name='Bid density',
-            line=dict(color='blue'), fillcolor='rgba(0,0,255,0.2)'
-        ))
-        fig3.add_vline(
-            x=ask_lower, line_dash="dash", line_color="darkred")
-        
-        fig3.add_vline(
-            x=bid_upper, line_dash="dash", line_color="darkblue")
-        
+
+        # Pre-cascade
+        pa, pb, apdf, bpdf, pre_ask_lo, pre_bid_hi = dist_pdfs_bps(initial_model)
+        fig3.add_trace(go.Scatter(x=pa, y=apdf, fill='tozeroy', name='Ask (pre-cascade)',
+                                  line=dict(color='darkred', width=2),
+                                  fillcolor='rgba(180,0,0,0.30)'))
+        fig3.add_trace(go.Scatter(x=pb, y=bpdf, fill='tozeroy', name='Bid (pre-cascade)',
+                                  line=dict(color='darkblue', width=2),
+                                  fillcolor='rgba(0,0,180,0.30)'))
+        y_max = max(max(apdf), max(bpdf)) * 0.05
+
+        # Post-cascade model — calibrate from surviving positions
+        surviving_agents = [a for a in agents if not a.liquidated]
+        post_model = None
+        if len(surviving_agents) > 0:
+            surviving_df = pd.DataFrame({
+                'collateral_usd': [a.collateral for a in surviving_agents],
+                'debt_usd':       [a.debt for a in surviving_agents],
+                'health_factor':  [a.health_factor for a in surviving_agents]
+            })
+            try:
+                post_model = calibrate_from_positions(
+                    surviving_df,
+                    gas_usd=float(gas_cost),
+                    stablecoin_depth_usd=float(results['available_liquidity_usd'].iloc[-1]),
+                    daily_volatility=0.05
+                )
+            except ValueError:
+                post_model = None
+
+        if post_model is not None:
+            pa2, pb2, apdf2, bpdf2, post_ask_lo, post_bid_hi = dist_pdfs_bps(post_model)
+            fig3.add_trace(go.Scatter(x=pa2, y=apdf2, fill='tozeroy', name='Ask (post-cascade)',
+                                      line=dict(color='red', width=1.5, dash='dash'),
+                                      fillcolor='rgba(255,80,80,0.12)'))
+            fig3.add_trace(go.Scatter(x=pb2, y=bpdf2, fill='tozeroy', name='Bid (post-cascade)',
+                                      line=dict(color='blue', width=1.5, dash='dash'),
+                                      fillcolor='rgba(80,80,255,0.12)'))
+
+            # Vertical lines at inner spread edges — one label per side only
+            fig3.add_vline(x=pre_ask_lo,  line_dash='dot',  line_color='darkred',  opacity=0.5)
+            fig3.add_vline(x=pre_bid_hi,  line_dash='dot',  line_color='darkblue', opacity=0.5)
+            fig3.add_vline(x=post_ask_lo, line_dash='dash', line_color='red',      opacity=0.8)
+            fig3.add_vline(x=post_bid_hi, line_dash='dash', line_color='blue',     opacity=0.8)
+
+            y_max = max(y_max, max(max(apdf2), max(bpdf2)) * 0.05)
+
+            pre_spread  = round(pre_ask_lo  - pre_bid_hi,  3)
+            post_spread = round(post_ask_lo - post_bid_hi, 3)
+            theta_pre  = round(initial_model.theta, 1)
+            theta_post = round(post_model.theta, 1)
+            title = (f"Spread: {pre_spread} → {post_spread} bps  |  θ: {theta_pre} → {theta_post}")
+        else:
+            title = f"Bid & Ask Distributions  |  θ={initial_model.theta:.1f}"
+
+        fig3.add_vline(x=0, line_color='grey', line_width=1, opacity=0.4)
         fig3.update_layout(
-            title=f"Proposition 1: Bid & Ask Distributions  |  θ={model.theta:.2f}  |  F={model.flash_crash_prob:.7f}  |  {model.summary()['market status']}",
-            xaxis_title="Price", yaxis_title="Density",
-            xaxis=dict(range=[bid_lower - 0.001, ask_upper + 0.001]),
-            template="plotly_white"
+            title=title,
+            xaxis_title="Basis points from par (price = 1.0)",
+            yaxis_title="Density",
+            xaxis=dict(range=[-initial_model.Gamma * 10000 - 10, initial_model.Gamma * 10000 + 10]),
+            legend=dict(x=0.01, y=0.99), template="plotly_white"
         )
-        fig3.update_yaxes(range=[0, min(max(ask_pdf), max(bid_pdf)) * 0.05])
+        fig3.update_yaxes(range=[0, y_max])
 
     except (ValueError, AttributeError):
         fig3 = go.Figure()
@@ -290,10 +381,8 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
             xref="paper", yref="paper", x=0.5, y=0.5,
             showarrow=False, font=dict(size=16, color="red")
         )
-        fig3.update_layout(
-            title="Proposition 1: Bid & Ask Price Distributions",
-            template="plotly_white"
-        )
+        fig3.update_layout(title="Proposition 1: Bid & Ask Price Distributions",
+                           template="plotly_white")
 
     # --- Chart 4: Stress test ---
     drops = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
@@ -303,7 +392,9 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
             r, a = run_cascade(
                 price_drop_pct=d,
                 gas_usd=float(gas_cost),
-                initial_liquidity_pct=liquidity_pct / 100
+                initial_liquidity_pct=liquidity_pct / 100,
+                use_feedback=use_feedback,
+                rng_seed=42,
             )
             scenario_results.append({
                 "drop": f"{int(d*100)}%",
@@ -333,7 +424,7 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         title="Stress Test: All Scenarios", xaxis_title="Price Drop",
         yaxis=dict(title="Bad Debt ($M)", side="left"),
         yaxis2=dict(title="Positions Liquidated", side="right", overlaying="y"),
-        legend=dict(x=0.01, y=0.99), template="plotly_white"
+        legend=dict(x=0.01, y=0.99), template="plotly_white",
     )
 
     return price_drop, liquidity_pct, gas_cost, description, summary, fig1, fig2, fig3, fig4, data_status
