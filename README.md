@@ -60,7 +60,7 @@ The model implements the equilibrium from Mishricky (2025), which combines the B
 - Proposition 12: Speculative premium
 - Conservation law: `MSE · F = (κ / φᵐ)²`
 
-**Interpreting F:** F is a *per-cycle* probability — the chance that no competitive quote is posted in a single auction round. Small per-cycle values compound rapidly: at 1,000 quote cycles per hour, F = 0.0005 gives a daily flash crash probability of `1 - (1 - 0.0005)^24000 ≈ 100%`.
+**Interpreting F:** F is a *per-cycle* probability — the chance that no competitive quote is posted in a single auction round. Small per-cycle values compound rapidly across the thousands of quote cycles that occur each day. At 1,000 quote cycles per hour, the daily flash crash probability `1 - (1-F)^24000` is approximately 70% at the STABLE boundary (F = 0.00005) and effectively 100% at the CRITICAL boundary (F = 0.00050). The thresholds therefore reflect meaningfully distinct risk regimes despite the small absolute values of F.
 
 Market status thresholds calibrated to a $1.8B Aave V3-equivalent pool:
 

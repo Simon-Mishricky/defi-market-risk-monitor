@@ -6,6 +6,11 @@ import numpy as np
 from simulate import run_cascade
 from theory import calibrate_from_positions
 from fetch_aave import generate_aave_positions
+try:
+    from fetch_live import fetch_live_positions, check_connection
+    LIVE_AVAILABLE = True
+except (ImportError, Exception):
+    LIVE_AVAILABLE = False
 
 app = dash.Dash(__name__)
 
@@ -15,7 +20,24 @@ app.layout = html.Div([
             style={"textAlign": "center", "fontFamily": "Arial", "marginBottom": "10px"}),
 
     html.P("Mishricky (2025) — Asset Price Dispersion, Monetary Policy and Macroprudential Regulation",
-           style={"textAlign": "center", "fontFamily": "Arial", "color": "grey", "marginBottom": "30px"}),
+           style={"textAlign": "center", "fontFamily": "Arial", "color": "grey", "marginBottom": "10px"}),
+
+    html.Div([
+        html.Label("Data Source: ", style={"fontFamily": "Arial", "fontSize": "14px", "marginRight": "10px"}),
+        dcc.RadioItems(
+            id="data-source",
+            options=[
+                {"label": "  Synthetic (offline)", "value": "synthetic"},
+                {"label": "  Live Aave V3", "value": "live"},
+            ],
+            value="synthetic",
+            inline=True,
+            style={"fontFamily": "Arial", "fontSize": "14px", "display": "inline-block"}
+        ),
+        html.Span(id="data-source-status",
+                  style={"fontFamily": "Arial", "fontSize": "13px",
+                         "color": "#555", "marginLeft": "20px", "fontStyle": "italic"}),
+    ], style={"textAlign": "center", "marginBottom": "20px"}),
 
     html.Div([
         html.Div([
@@ -88,12 +110,14 @@ app.layout = html.Div([
     Output("theory-chart", "figure"),
     Output("distributions-chart", "figure"),
     Output("stress-test-chart", "figure"),
+    Output("data-source-status", "children"),
     Input("scenario-preset", "value"),
     Input("price-drop", "value"),
     Input("liquidity-pct", "value"),
     Input("gas-cost", "value"),
+    Input("data-source", "value"),
 )
-def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost):
+def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_source):
 
     preset_map = {
         "normal":    (30, 40, 80),
@@ -117,7 +141,17 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost):
     print(f"Running: preset={scenario_preset} drop={price_drop}% liquidity={liquidity_pct}% gas=${gas_cost}")
 
     # --- Generate pool (shared across pre-cascade calibration and chart 3) ---
-    positions = generate_aave_positions(n=1000)
+    data_status = ""
+    if data_source == "live" and LIVE_AVAILABLE:
+        try:
+            positions = fetch_live_positions(n_sample=1000)
+            data_status = f"Live Aave V3 — {len(positions)} positions fetched"
+        except Exception as e:
+            positions = generate_aave_positions(n=1000)
+            data_status = f"Live fetch failed ({e}) — using synthetic data"
+    else:
+        positions = generate_aave_positions(n=1000)
+        data_status = "Synthetic data (Aave V3 calibrated)" if data_source == "synthetic" else "Live data unavailable — using synthetic"
     total_debt = positions['debt_usd'].sum()
     stablecoin_depth = total_debt * (liquidity_pct / 100)
 
@@ -302,7 +336,7 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost):
         legend=dict(x=0.01, y=0.99), template="plotly_white"
     )
 
-    return price_drop, liquidity_pct, gas_cost, description, summary, fig1, fig2, fig3, fig4
+    return price_drop, liquidity_pct, gas_cost, description, summary, fig1, fig2, fig3, fig4, data_status
 
 
 if __name__ == "__main__":
