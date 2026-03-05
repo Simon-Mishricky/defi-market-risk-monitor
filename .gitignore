@@ -3,4 +3,4 @@ __pycache__/
 *.png
 *.zip
 .DS_Store
-.env
+.env.claude/worktrees/
