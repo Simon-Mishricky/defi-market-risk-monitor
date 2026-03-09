@@ -30,15 +30,217 @@ try:
 except (ImportError, Exception):
     DUNE_AVAILABLE = False
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
+# ── Global dark theme CSS ─────────────────────────────────────────────────────
+_index_string = '''
+<!DOCTYPE html>
+<html>
+<head>
+    {%metas%}
+    <title>{%title%}</title>
+    {%favicon%}
+    {%css%}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary:   #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary:  #21262d;
+            --border:       #30363d;
+            --text-primary: #e6edf3;
+            --text-muted:   #8b949e;
+            --accent-blue:  #58a6ff;
+            --accent-cyan:  #39d0d8;
+            --accent-green: #3fb950;
+            --accent-red:   #ff6b6b;
+            --accent-orange:#d29922;
+        }
+        html, body, #react-entry-point, #_dash-app-content {
+            background-color: var(--bg-primary) !important;
+            color: var(--text-primary) !important;
+            font-family: "IBM Plex Mono", monospace !important;
+        }
+        /* Tabs */
+        .dash-tab, .tab--selected {
+            background-color: var(--bg-secondary) !important;
+            border-color: var(--border) !important;
+            color: var(--text-muted) !important;
+            font-family: "IBM Plex Mono", monospace !important;
+            font-size: 13px !important;
+            letter-spacing: 0.3px;
+        }
+        .tab--selected {
+            color: var(--accent-blue) !important;
+            border-bottom-color: var(--accent-blue) !important;
+            border-bottom-width: 2px !important;
+            background-color: var(--bg-primary) !important;
+        }
+        .tab-container, .tabs-container {
+            background-color: var(--bg-primary) !important;
+        }
+        /* ── Dash 4 Radix UI Slider (actual class names) ──────────────── */
+        /* Track — the full background rail */
+        .dash-slider-track {
+            background-color: #4a5568 !important;
+            height: 6px !important;
+            border-radius: 3px !important;
+            position: relative !important;
+            flex-grow: 1 !important;
+            cursor: pointer !important;
+        }
+        /* Range — the filled active portion */
+        .dash-slider-range {
+            background-color: #58a6ff !important;
+            height: 100% !important;
+            border-radius: 3px !important;
+            position: absolute !important;
+        }
+        /* Thumb — the draggable handle */
+        .dash-slider-thumb {
+            display: block !important;
+            width: 18px !important;
+            height: 18px !important;
+            background-color: #e6edf3 !important;
+            border: 3px solid #58a6ff !important;
+            border-radius: 50% !important;
+            cursor: pointer !important;
+            box-shadow: none !important;
+        }
+        .dash-slider-thumb:hover,
+        .dash-slider-thumb:focus {
+            background-color: #ffffff !important;
+            border-color: #79c0ff !important;
+            box-shadow: 0 0 0 5px rgba(88,166,255,0.35) !important;
+            outline: none !important;
+        }
+        /* Mark labels */
+        .dash-slider-mark {
+            color: #8b949e !important;
+            font-size: 11px !important;
+            font-family: "IBM Plex Mono", monospace !important;
+        }
+        /* Radio buttons */
+        .dash-radioitems label { color: var(--text-primary) !important; }
+        /* Labels */
+        label { color: var(--text-primary) !important; font-family: "IBM Plex Mono", monospace !important; font-size: 13px !important; }
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        /* Plotly charts bg override */
+        .js-plotly-plot .plotly .bg { fill: var(--bg-secondary) !important; }
+        /* Buttons */
+        button { font-family: "IBM Plex Mono", monospace !important; letter-spacing: 0.4px; }
+        /* Graph containers */
+        .dash-graph { background-color: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+    {%app_entry%}
+    <style>
+        /* This block is in <body> so it loads AFTER Dash's component stylesheet (sheet 5)
+           and therefore wins the cascade without needing !important on everything */
+        :root {
+            --Dash-Fill-Disabled: #4a5568;
+        }
+        .dash-slider-track {
+            background-color: #4a5568 !important;
+            height: 6px !important;
+            border-radius: 3px !important;
+        }
+        .dash-slider-range {
+            background-color: #58a6ff !important;
+            border-radius: 3px !important;
+        }
+        .dash-slider-thumb {
+            width: 18px !important;
+            height: 18px !important;
+            background-color: #e6edf3 !important;
+            border: 3px solid #58a6ff !important;
+            border-radius: 50% !important;
+            box-shadow: none !important;
+        }
+        .dash-slider-thumb:hover,
+        .dash-slider-thumb:focus {
+            background-color: #ffffff !important;
+            border-color: #79c0ff !important;
+            box-shadow: 0 0 0 5px rgba(88,166,255,0.35) !important;
+            outline: none !important;
+        }
+        .dash-slider-mark {
+            color: #8b949e !important;
+            font-size: 11px !important;
+            font-family: "IBM Plex Mono", monospace !important;
+        }
+    </style>
+    <footer>
+        {%config%}
+        {%scripts%}
+        {%renderer%}
+    </footer>
+    <script>
+    (function() {
+        function applySliderStyles() {
+            // Override the Dash CSS variable that controls the track colour
+            document.documentElement.style.setProperty('--Dash-Fill-Disabled', '#4a5568');
+
+            // Inject a dynamic stylesheet if not already done — this cannot be stripped by Dash
+            if (!document.getElementById('slider-override-sheet')) {
+                var style = document.createElement('style');
+                style.id = 'slider-override-sheet';
+                style.textContent = [
+                    '.dash-slider-track { background-color: #4a5568 !important; height: 6px !important; border-radius: 3px !important; }',
+                    '.dash-slider-range { background-color: #58a6ff !important; border-radius: 3px !important; }',
+                    '.dash-slider-thumb { width: 18px !important; height: 18px !important; background-color: #e6edf3 !important; border: 3px solid #58a6ff !important; border-radius: 50% !important; box-shadow: none !important; }',
+                    '.dash-slider-thumb:hover, .dash-slider-thumb:focus { background-color: #fff !important; border-color: #79c0ff !important; box-shadow: 0 0 0 5px rgba(88,166,255,0.35) !important; outline: none !important; }',
+                    '.dash-slider-mark { color: #8b949e !important; font-size: 11px !important; font-family: "IBM Plex Mono", monospace !important; }'
+                ].join('\n');
+                document.head.appendChild(style);
+            }
+
+            // Also set inline styles directly on each element as final fallback
+            document.querySelectorAll('.dash-slider-track').forEach(function(el) {
+                el.style.setProperty('background-color', '#4a5568', 'important');
+                el.style.setProperty('height', '6px', 'important');
+                el.style.setProperty('border-radius', '3px', 'important');
+            });
+            document.querySelectorAll('.dash-slider-range').forEach(function(el) {
+                el.style.setProperty('background-color', '#58a6ff', 'important');
+                el.style.setProperty('border-radius', '3px', 'important');
+            });
+            document.querySelectorAll('.dash-slider-thumb').forEach(function(el) {
+                el.style.setProperty('background-color', '#e6edf3', 'important');
+                el.style.setProperty('border', '3px solid #58a6ff', 'important');
+                el.style.setProperty('border-radius', '50%', 'important');
+                el.style.setProperty('width', '18px', 'important');
+                el.style.setProperty('height', '18px', 'important');
+                el.style.setProperty('box-shadow', 'none', 'important');
+            });
+        }
+
+        applySliderStyles();
+        document.addEventListener('DOMContentLoaded', applySliderStyles);
+        [100, 300, 600, 1000, 2000, 4000].forEach(function(t) { setTimeout(applySliderStyles, t); });
+
+        var observer = new MutationObserver(function(mutations) {
+            var hasNewNodes = mutations.some(function(m) { return m.addedNodes.length > 0; });
+            if (hasNewNodes) applySliderStyles();
+        });
+        setTimeout(function() {
+            if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+        }, 50);
+    })();
+    </script>
+</body>
+</html>
+'''
+
+app = dash.Dash(__name__, suppress_callback_exceptions=True, index_string=_index_string)
 
 app.layout = html.Div([
 
     html.H1("DeFi Liquidation Risk Monitor",
-            style={"textAlign": "center", "fontFamily": "Arial", "marginBottom": "4px"}),
+            style={"textAlign": "center", "fontFamily": "IBM Plex Mono, monospace", "marginBottom": "28px", "color": "#e6edf3", "letterSpacing": "-0.5px"}),
 
-    html.P("Mishricky (2025) — Asset Price Dispersion, Monetary Policy and Macroprudential Regulation",
-           style={"textAlign": "center", "fontFamily": "Arial", "color": "grey", "marginBottom": "16px"}),
 
     dcc.Tabs(id="main-tabs", value="simulator", children=[
 
@@ -46,7 +248,7 @@ app.layout = html.Div([
         dcc.Tab(label="Simulator", value="simulator", children=[
 
     html.Div([
-        html.Label("Data Source: ", style={"fontFamily": "Arial", "fontSize": "14px", "marginRight": "10px"}),
+        html.Label("Data Source: ", style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px", "marginRight": "10px"}),
         dcc.RadioItems(
             id="data-source",
             options=[
@@ -55,11 +257,11 @@ app.layout = html.Div([
             ],
             value="synthetic",
             inline=True,
-            style={"fontFamily": "Arial", "fontSize": "14px", "display": "inline-block"}
+            style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px", "display": "inline-block"}
         ),
         html.Span(id="data-source-status",
-                  style={"fontFamily": "Arial", "fontSize": "13px",
-                         "color": "#555", "marginLeft": "20px", "fontStyle": "italic"}),
+                  style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px",
+                         "color": "#8b949e", "marginLeft": "20px", "fontStyle": "italic"}),
     ], style={"textAlign": "center", "marginBottom": "20px"}),
 
     html.Div([
@@ -75,36 +277,63 @@ app.layout = html.Div([
                 ],
                 value="normal",
                 inline=True,
-                style={"fontFamily": "Arial", "fontSize": "14px"}
+                style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px"}
             ),
         ], style={"marginBottom": "10px"}),
 
         html.P(id="preset-description",
-               style={"fontFamily": "Arial", "fontSize": "13px",
-                      "color": "#555", "fontStyle": "italic", "marginBottom": "20px"}),
+               style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px",
+                      "color": "#8b949e", "fontStyle": "italic", "marginBottom": "20px"}),
 
+        # ── Price Drop slider ──────────────────────────────────────────
         html.Div([
-            html.Label("Price Drop (%)"),
+            html.Div([
+                html.Label("Price Drop (%)", style={"flex": "1"}),
+                html.Span(id="price-drop-display", children="30%",
+                          style={"backgroundColor": "#21262d", "color": "#c9d1d9",
+                                 "border": "1px solid #4a5568", "borderRadius": "4px",
+                                 "fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px",
+                                 "padding": "3px 10px", "minWidth": "52px", "textAlign": "center"}),
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}),
             dcc.Slider(id="price-drop", min=5, max=60, step=5, value=30,
-                       marks={i: f"{i}%" for i in range(5, 65, 5)}),
-        ], style={"marginBottom": "30px"}),
+                       allow_direct_input=False,
+                       marks={i: {"label": f"{i}%", "style": {"color": "#c9d1d9", "fontFamily": "IBM Plex Mono, monospace", "fontSize": "11px"}} for i in range(5, 65, 10)}),
+        ], className="dark-slider-wrap", style={"marginBottom": "36px"}),
 
+        # ── Initial Liquidity slider ────────────────────────────────────
         html.Div([
-            html.Label("Initial Liquidity (% of total debt)"),
+            html.Div([
+                html.Label("Initial Liquidity (% of total debt)", style={"flex": "1"}),
+                html.Span(id="liquidity-pct-display", children="40%",
+                          style={"backgroundColor": "#21262d", "color": "#c9d1d9",
+                                 "border": "1px solid #4a5568", "borderRadius": "4px",
+                                 "fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px",
+                                 "padding": "3px 10px", "minWidth": "52px", "textAlign": "center"}),
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}),
             dcc.Slider(id="liquidity-pct", min=1, max=80, step=1, value=40,
-                       marks={i: f"{i}%" for i in [1, 5, 10, 20, 40, 60, 80]}),
-        ], style={"marginBottom": "30px"}),
+                       allow_direct_input=False,
+                       marks={i: {"label": f"{i}%", "style": {"color": "#c9d1d9", "fontFamily": "IBM Plex Mono, monospace", "fontSize": "11px"}} for i in [1, 10, 20, 40, 60, 80]}),
+        ], className="dark-slider-wrap", style={"marginBottom": "36px"}),
 
+        # ── Gas Cost slider ─────────────────────────────────────────────
         html.Div([
-            html.Label("Gas Cost per Liquidation (USD)"),
+            html.Div([
+                html.Label("Gas Cost per Liquidation (USD)", style={"flex": "1"}),
+                html.Span(id="gas-cost-display", children="$80",
+                          style={"backgroundColor": "#21262d", "color": "#c9d1d9",
+                                 "border": "1px solid #4a5568", "borderRadius": "4px",
+                                 "fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px",
+                                 "padding": "3px 10px", "minWidth": "52px", "textAlign": "center"}),
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}),
             dcc.Slider(id="gas-cost", min=20, max=500, step=20, value=80,
-                       marks={i: f"${i}" for i in range(20, 520, 80)}),
-        ], style={"marginBottom": "10px"}),
+                       allow_direct_input=False,
+                       marks={i: {"label": f"${i}", "style": {"color": "#c9d1d9", "fontFamily": "IBM Plex Mono, monospace", "fontSize": "11px"}} for i in range(20, 520, 80)}),
+        ], className="dark-slider-wrap", style={"marginBottom": "10px"}),
 
         # Feedback toggle
         html.Div([
             html.Label("Bot Participation Model: ",
-                       style={"fontFamily": "Arial", "fontSize": "14px", "marginRight": "10px"}),
+                       style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px", "marginRight": "10px"}),
             dcc.RadioItems(
                 id="feedback-mode",
                 options=[
@@ -113,7 +342,7 @@ app.layout = html.Div([
                 ],
                 value="on",
                 inline=True,
-                style={"fontFamily": "Arial", "fontSize": "14px", "display": "inline-block"}
+                style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px", "display": "inline-block"}
             ),
         ], style={"marginTop": "10px", "marginBottom": "5px"}),
 
@@ -121,17 +350,17 @@ app.layout = html.Div([
             "Endogenous: each round, bots participate with probability (1 − F). "
             "When they don't, positions stay underwater and liquidity continues to drain, "
             "raising F further — the doom loop runs in the simulation, not just the README.",
-            style={"fontFamily": "Arial", "fontSize": "12px",
-                   "color": "#777", "fontStyle": "italic", "marginBottom": "5px"}
+            style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "12px",
+                   "color": "#8b949e", "fontStyle": "italic", "marginBottom": "5px"}
         ),
 
-    ], style={"padding": "20px", "backgroundColor": "#f9f9f9",
+    ], style={"padding": "20px", "backgroundColor": "#0d1117",
               "borderRadius": "8px", "marginBottom": "30px"}),
 
     html.Div(id="summary-stats",
              style={"display": "flex", "justifyContent": "space-around",
                     "flexWrap": "wrap", "gap": "10px",
-                    "marginBottom": "30px", "fontFamily": "Arial"}),
+                    "marginBottom": "30px", "fontFamily": "IBM Plex Mono, monospace"}),
 
     html.Div([
         dcc.Graph(id="cascade-chart"),
@@ -150,21 +379,21 @@ app.layout = html.Div([
         dcc.Tab(label="Live F Monitor", value="monitor", children=[
             html.Div([
                 html.Div([
-                    html.H3("Real-Time Fragility Signal", style={"fontFamily": "Arial"}),
+                    html.H3("Real-Time Fragility Signal", style={"fontFamily": "IBM Plex Mono, monospace"}),
                     html.P(
                         "F (flash-crash probability) computed from live Aave V3 on-chain conditions "
                         "every hour. Logged to f_monitor_log.csv. F rises when gas costs spike, "
                         "stablecoin depth drains, or utilisation increases — before bad debt materialises.",
-                        style={"fontFamily": "Arial", "color": "#555", "fontSize": "13px"}
+                        style={"fontFamily": "IBM Plex Mono, monospace", "color": "#8b949e", "fontSize": "13px"}
                     ),
                     html.Div([
                         html.Button("Fetch Snapshot Now", id="monitor-refresh-btn",
                                     style={"marginRight": "15px", "padding": "8px 18px",
-                                           "backgroundColor": "#2c7be5", "color": "white",
+                                           "backgroundColor": "#1f6feb", "color": "#e6edf3",
                                            "border": "none", "borderRadius": "4px",
                                            "cursor": "pointer", "fontSize": "14px"}),
-                        html.Span(id="monitor-status", style={"fontFamily": "Arial",
-                                                               "fontSize": "13px", "color": "#555"}),
+                        html.Span(id="monitor-status", style={"fontFamily": "IBM Plex Mono, monospace",
+                                                               "fontSize": "13px", "color": "#8b949e"}),
                     ], style={"marginBottom": "20px"}),
                 ], style={"padding": "16px 0"}),
 
@@ -182,8 +411,8 @@ app.layout = html.Div([
                 html.P(
                     "How to deploy: run 'python monitor.py --daemon' to collect hourly snapshots. "
                     "Add to cron: '0 * * * * cd /path/to/project && python monitor.py' for fully automated logging.",
-                    style={"fontFamily": "Arial", "fontSize": "12px", "color": "#999",
-                           "fontStyle": "italic", "marginTop": "16px"}
+                    style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "12px", "color": "#6e7681",
+                           "fontStyle": "italic", "marginTop": "16px", "color": "#8b949e"}
                 ),
             ], style={"padding": "20px"}),
         ]),  # end Tab 2
@@ -193,18 +422,18 @@ app.layout = html.Div([
             html.Div([
                 html.Div([
                     html.H3("Empirical Validation: FTX Collapse (November 2022)",
-                            style={"fontFamily": "Arial"}),
+                            style={"fontFamily": "IBM Plex Mono, monospace"}),
                     html.P(
                         "Reconstructs Aave V2 Ethereum pool conditions on November 8, 2022 "
                         "and runs the cascade simulator from those starting conditions. "
                         "Tests whether F would have signalled ELEVATED RISK before the "
                         "bad debt materialised on-chain. (Aave V3 did not deploy on "
                         "Ethereum until Jan 2023; the FTX-era market ran V2.)",
-                        style={"fontFamily": "Arial", "color": "#555", "fontSize": "13px"}
+                        style={"fontFamily": "IBM Plex Mono, monospace", "color": "#8b949e", "fontSize": "13px"}
                     ),
                     html.Button("Run Backtest", id="backtest-run-btn",
-                                style={"padding": "8px 18px", "backgroundColor": "#e74c3c",
-                                       "color": "white", "border": "none", "borderRadius": "4px",
+                                style={"padding": "8px 18px", "backgroundColor": "#da3633",
+                                       "color": "#e6edf3", "border": "none", "borderRadius": "4px",
                                        "cursor": "pointer", "fontSize": "14px",
                                        "marginBottom": "20px"}),
                 ], style={"padding": "16px 0"}),
@@ -217,11 +446,11 @@ app.layout = html.Div([
                             html.Span("", style={"fontSize": "40px"}),
                             html.P(
                                 "Click Run Backtest to simulate the FTX cascade and generate all charts.",
-                                style={"fontFamily": "Arial", "fontSize": "14px",
-                                       "color": "#888", "margin": "10px 0 0 0"}
+                                style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "14px",
+                                       "color": "#8b949e", "margin": "10px 0 0 0"}
                             ),
                         ], style={"textAlign": "center", "padding": "60px 20px",
-                                  "backgroundColor": "#f9f9f9", "borderRadius": "8px",
+                                  "backgroundColor": "#0d1117", "borderRadius": "8px",
                                   "border": "1px dashed #ccc"}),
                     ],
                     style={"display": "block"},
@@ -238,13 +467,13 @@ app.layout = html.Div([
 
                         # Timeline + cascade charts
                         html.Div([
-                            dcc.Graph(id="backtest-timeline-chart"),
-                            dcc.Graph(id="backtest-cascade-chart"),
+                            html.Div(dcc.Graph(id="backtest-timeline-chart"), style={"minWidth": "0"}),
+                            html.Div(dcc.Graph(id="backtest-cascade-chart"), style={"minWidth": "0"}),
                         ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "20px"}),
 
                         html.Div([
-                            dcc.Graph(id="backtest-comparison-chart"),
-                            dcc.Graph(id="backtest-specpremium-chart"),
+                            html.Div(dcc.Graph(id="backtest-comparison-chart"), style={"minWidth": "0"}),
+                            html.Div(dcc.Graph(id="backtest-specpremium-chart"), style={"minWidth": "0"}),
                         ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
                                   "gap": "20px", "marginTop": "20px"}),
 
@@ -253,8 +482,8 @@ app.layout = html.Div([
                             "Data sources: DeFiLlama TVL series (Nov 2022), Dune Analytics #1329110 "
                             "(HF distribution), Etherscan gas oracle export, CoinGecko ETH/USD OHLCV. "
                             "Actual liquidation figures: Messari Research / Rekt.news post-mortem.",
-                            style={"fontFamily": "Arial", "fontSize": "11px", "color": "#aaa",
-                                   "fontStyle": "italic", "marginTop": "16px"}
+                            style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "11px", "color": "#6e7681",
+                                   "fontStyle": "italic", "marginTop": "16px", "color": "#8b949e"}
                         ),
                     ],
                 ),
@@ -263,7 +492,18 @@ app.layout = html.Div([
 
     ]),  # end Tabs
 
-], style={"maxWidth": "1400px", "margin": "auto", "padding": "20px"})
+], style={"maxWidth": "1600px", "margin": "auto", "padding": "20px", "backgroundColor": "#0d1117", "minHeight": "100vh", "fontFamily": "\"IBM Plex Mono\", monospace", "overflow": "hidden"})
+
+
+# ── Slider display callbacks ──────────────────────────────────────────────────
+@app.callback(Output("price-drop-display", "children"), Input("price-drop", "value"))
+def update_price_display(v): return f"{v}%"
+
+@app.callback(Output("liquidity-pct-display", "children"), Input("liquidity-pct", "value"))
+def update_liquidity_display(v): return f"{v}%"
+
+@app.callback(Output("gas-cost-display", "children"), Input("gas-cost", "value"))
+def update_gas_display(v): return f"${v}"
 
 
 @app.callback(
@@ -354,13 +594,13 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         return {"STABLE": "green", "ELEVATED RISK": "orange",
                 "CRITICAL": "red"}.get(s, "grey")
 
-    def stat_box(label, value, color="black"):
+    def stat_box(label, value, color="#e6edf3"):
         return html.Div([
-            html.H3(value, style={"color": color, "margin": "0", "fontSize": "24px"}),
-            html.P(label, style={"margin": "0", "color": "grey", "fontSize": "12px"})
+            html.H3(value, style={"color": color, "margin": "0", "fontSize": "24px", "fontFamily": "IBM Plex Mono, monospace"}),
+            html.P(label, style={"margin": "0", "color": "#8b949e", "fontSize": "12px"})
         ], style={"textAlign": "center", "padding": "15px",
-                  "backgroundColor": "white", "borderRadius": "8px",
-                  "boxShadow": "0 2px 4px rgba(0,0,0,0.1)", "minWidth": "150px"})
+                  "backgroundColor": "#161b22", "borderRadius": "8px",
+                  "boxShadow": "0 0 12px rgba(0,230,255,0.08), inset 0 1px 0 rgba(255,255,255,0.05)", "minWidth": "150px"})
 
     summary = [
         stat_box("Positions Liquidated", f"{total_liquidated} / 1000"),
@@ -383,14 +623,17 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
     ))
     fig1.add_trace(go.Scatter(
         x=results['round'], y=results['price'],
-        name='Price', line=dict(color='steelblue', width=2), yaxis='y2'
+        name='Price', line=dict(color='#58a6ff', width=2), yaxis='y2'
     ))
     fig1.update_layout(
         title="Liquidation Cascade by Round",
         xaxis_title="Round",
         yaxis=dict(title="Liquidations", side="left"),
         yaxis2=dict(title="Price (relative)", side="right", overlaying="y"),
-        legend=dict(x=0.7, y=0.99), template="plotly_white"
+        legend=dict(x=0.7, y=0.99), template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
     )
 
     # --- Chart 2: Theory ---
@@ -425,7 +668,10 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         yaxis=dict(title="θ (quote intensity)", side="left"),
         yaxis2=dict(title="P(flash crash | round)  [= 1 − (1−F)^1000]", side="right", overlaying="y",
                     tickformat=".0%", range=[0, 1]),
-        legend=dict(x=0.5, y=0.99), template="plotly_white"
+        legend=dict(x=0.5, y=0.99), template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
     )
 
     # --- Chart 3: Distributions — pre and post cascade ---
@@ -455,10 +701,10 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         # Pre-cascade
         pa, pb, apdf, bpdf, pre_ask_lo, pre_bid_hi = dist_pdfs_bps(initial_model)
         fig3.add_trace(go.Scatter(x=pa, y=apdf, fill='tozeroy', name='Ask (pre-cascade)',
-                                  line=dict(color='darkred', width=2),
+                                  line=dict(color='#ff4d4d', width=2),
                                   fillcolor='rgba(180,0,0,0.30)'))
         fig3.add_trace(go.Scatter(x=pb, y=bpdf, fill='tozeroy', name='Bid (pre-cascade)',
-                                  line=dict(color='darkblue', width=2),
+                                  line=dict(color='#4d94ff', width=2),
                                   fillcolor='rgba(0,0,180,0.30)'))
         y_max = max(max(apdf), max(bpdf)) * 0.05
 
@@ -491,8 +737,8 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
                                       fillcolor='rgba(80,80,255,0.12)'))
 
             # Vertical lines at inner spread edges — one label per side only
-            fig3.add_vline(x=pre_ask_lo,  line_dash='dot',  line_color='darkred',  opacity=0.5)
-            fig3.add_vline(x=pre_bid_hi,  line_dash='dot',  line_color='darkblue', opacity=0.5)
+            fig3.add_vline(x=pre_ask_lo,  line_dash='dot',  line_color='#ff4d4d',  opacity=0.5)
+            fig3.add_vline(x=pre_bid_hi,  line_dash='dot',  line_color='#4d94ff', opacity=0.5)
             fig3.add_vline(x=post_ask_lo, line_dash='dash', line_color='red',      opacity=0.8)
             fig3.add_vline(x=post_bid_hi, line_dash='dash', line_color='blue',     opacity=0.8)
 
@@ -506,13 +752,16 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
         else:
             title = f"Bid & Ask Distributions  |  θ={initial_model.theta:.1f}"
 
-        fig3.add_vline(x=0, line_color='grey', line_width=1, opacity=0.4)
+        fig3.add_vline(x=0, line_color='#6e7681', line_width=1, opacity=0.4)
         fig3.update_layout(
             title=title,
             xaxis_title="Basis points from par (price = 1.0)",
             yaxis_title="Density",
             xaxis=dict(range=[-initial_model.Gamma * 10000 - 10, initial_model.Gamma * 10000 + 10]),
-            legend=dict(x=0.01, y=0.99), template="plotly_white"
+            legend=dict(x=0.01, y=0.99), template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         )
         fig3.update_yaxes(range=[0, y_max])
 
@@ -524,7 +773,7 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
             showarrow=False, font=dict(size=16, color="red")
         )
         fig3.update_layout(title="Proposition 1: Bid & Ask Price Distributions",
-                           template="plotly_white")
+                           template="plotly_dark", paper_bgcolor="#161b22", plot_bgcolor="#0d1117", font=dict(color="#e6edf3"))
 
     # --- Chart 4: Stress test ---
     drops = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
@@ -560,13 +809,16 @@ def update_dashboard(scenario_preset, price_drop, liquidity_pct, gas_cost, data_
     fig4.add_trace(go.Scatter(
         x=scenario_df['drop'], y=scenario_df['liquidated'],
         name='Positions Liquidated',
-        line=dict(color='steelblue', width=2), yaxis='y2'
+        line=dict(color='#58a6ff', width=2), yaxis='y2'
     ))
     fig4.update_layout(
         title="Stress Test: All Scenarios", xaxis_title="Price Drop",
         yaxis=dict(title="Bad Debt ($M)", side="left"),
         yaxis2=dict(title="Positions Liquidated", side="right", overlaying="y"),
-        legend=dict(x=0.01, y=0.99), template="plotly_white",
+        legend=dict(x=0.01, y=0.99), template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
     )
 
     return price_drop, liquidity_pct, gas_cost, description, summary, fig1, fig2, fig3, fig4, data_status
@@ -601,14 +853,14 @@ def update_monitor(n_clicks, active_tab):
     else:
         df = pd.DataFrame()
 
-    def _stat_card(label, value, color="#2c7be5", bg="#f0f6ff"):
+    def _stat_card(label, value, color="#2c7be5", bg="#0d1f3c"):
         return html.Div([
-            html.Div(label, style={"fontSize": "11px", "color": "#888", "textTransform": "uppercase",
+            html.Div(label, style={"fontSize": "11px", "color": "#6e7681", "textTransform": "uppercase",
                                     "letterSpacing": "0.5px", "marginBottom": "4px"}),
             html.Div(value, style={"fontSize": "20px", "fontWeight": "bold", "color": color}),
         ], style={"backgroundColor": bg, "border": f"1px solid {color}40",
                   "borderRadius": "6px", "padding": "12px 18px",
-                  "minWidth": "130px", "fontFamily": "Arial"})
+                  "minWidth": "130px", "fontFamily": "IBM Plex Mono, monospace"})
 
     if df.empty:
         # Show demo snapshot computed right now from live params
@@ -630,11 +882,11 @@ def update_monitor(n_clicks, active_tab):
                     _stat_card("P(fc | 24h)", f"{1-(1-m['F'])**24000:.2%}", color=status_color),
                     _stat_card("Market Status", m["market_status"], color=status_color,
                                bg={"STABLE": "#eafaf1", "ELEVATED RISK": "#fef9e7",
-                                   "CRITICAL": "#fdedec"}.get(m["market_status"], "#f9f9f9")),
+                                   "CRITICAL": "#2d0f0f"}.get(m["market_status"], "#f9f9f9")),
                 ]
                 return cards, go.Figure().update_layout(
                     title="No log data yet — click 'Fetch Snapshot Now' to start collecting",
-                    template="plotly_white"), go.Figure(), "Live snapshot (not yet logged)"
+                    template="plotly_dark", paper_bgcolor="#161b22", plot_bgcolor="#0d1117", font=dict(color="#e6edf3")), go.Figure(), "Live snapshot (not yet logged)"
             except Exception:
                 pass
         cards = [_stat_card("Status", "No data — click 'Fetch Snapshot Now'", "#999")]
@@ -653,7 +905,7 @@ def update_monitor(n_clicks, active_tab):
         _stat_card("P(flash crash | 24h)", f"{1-(1-float(latest.get('F', 0)))**24000:.2%}", color=status_color),
         _stat_card("Status", str(latest.get("market_status", "—")), color=status_color,
                    bg={"STABLE": "#eafaf1", "ELEVATED RISK": "#fef9e7",
-                       "CRITICAL": "#fdedec"}.get(str(latest.get("market_status", "")), "#f9f9f9")),
+                       "CRITICAL": "#2d0f0f"}.get(str(latest.get("market_status", "")), "#f9f9f9")),
     ]
 
     # Chart 1: P(flash crash | 24h) over time
@@ -674,12 +926,15 @@ def update_monitor(n_clicks, active_tab):
     ))
     fig_f.add_trace(go.Scatter(
         x=df["timestamp_utc"], y=df_daily_p,
-        mode="lines", line=dict(color="black", width=1.5), name="trend",
+        mode="lines", line=dict(color="#8b949e", width=1.5), name="trend",
     ))
     fig_f.update_layout(
         title="P(flash crash | 24h) = 1 − (1−F)^24000  —  Live Monitor",
         xaxis_title="Time (UTC)", yaxis_title="P(flash crash | 24h)", yaxis_tickformat=".1%",
-        template="plotly_white",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         legend=dict(x=0.01, y=0.99),
         shapes=[
             dict(type="line", x0=df["timestamp_utc"].min(), x1=df["timestamp_utc"].max(),
@@ -701,7 +956,7 @@ def update_monitor(n_clicks, active_tab):
     fig_ctx = go.Figure()
     fig_ctx.add_trace(go.Scatter(
         x=df["timestamp_utc"], y=df["eth_price_usd"],
-        name="ETH Price (USD)", line=dict(color="steelblue", width=2), yaxis="y"
+        name="ETH Price (USD)", line=dict(color="#58a6ff", width=2), yaxis="y"
     ))
     fig_ctx.add_trace(go.Scatter(
         x=df["timestamp_utc"], y=df["gas_usd"],
@@ -712,7 +967,10 @@ def update_monitor(n_clicks, active_tab):
         xaxis_title="Time (UTC)",
         yaxis=dict(title="ETH Price (USD)", side="left"),
         yaxis2=dict(title="Gas / Liquidation ($)", side="right", overlaying="y"),
-        legend=dict(x=0.01, y=0.99), template="plotly_white",
+        legend=dict(x=0.01, y=0.99), template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
     )
 
     return cards, fig_f, fig_ctx, status_msg
@@ -744,7 +1002,7 @@ def update_backtest(n_clicks, active_tab):
 
     if not BACKTEST_AVAILABLE:
         msg = html.Div("⚠ backtest_ftx.py not found. Ensure it is in the project directory.",
-                       style={"color": "red", "fontFamily": "Arial"})
+                       style={"color": "#ff6b6b", "fontFamily": "IBM Plex Mono, monospace"})
         return msg, *empty, hidden, visible_placeholder
 
     # Gate everything behind button click
@@ -783,14 +1041,14 @@ def update_backtest(n_clicks, active_tab):
         p_peak_daily, peak_status, peak_colour = 0.989, "CRITICAL", "#e74c3c"
 
     # Callout always shown (reads from timeline, not simulation)
-    bg_colour  = {"STABLE": "#eafaf1", "ELEVATED RISK": "#fef9e7", "CRITICAL": "#fdedec"}.get(status, "#f9f9f9")
+    bg_colour  = {"STABLE": "#0d2818", "ELEVATED RISK": "#2d1f04", "CRITICAL": "#2d0f0f"}.get(status, "#f9f9f9")
     callout = html.Div([
         html.Div([
             html.Span("P(flash crash | 24h) Trajectory: ", style={"fontWeight": "bold", "fontSize": "15px"}),
-            html.Span("Nov 8  ", style={"color": "#888", "fontSize": "13px"}),
+            html.Span("Nov 8  ", style={"color": "#6e7681", "fontSize": "13px"}),
             html.Span(f"{p_open_daily:.1%}", style={"fontSize": "20px", "fontWeight": "bold", "color": s_colour}),
             html.Span(f" [{status}]", style={"color": s_colour, "fontWeight": "bold"}),
-            html.Span("  →  Nov 9 peak  ", style={"color": "#888", "fontSize": "13px", "marginLeft": "14px"}),
+            html.Span("  →  Nov 9 peak  ", style={"color": "#6e7681", "fontSize": "13px", "marginLeft": "14px"}),
             html.Span(f"{p_peak_daily:.1%}", style={"fontSize": "20px", "fontWeight": "bold", "color": peak_colour}),
             html.Span(f" [{peak_status}]", style={"color": peak_colour, "fontWeight": "bold"}),
         ], style={"fontSize": "15px", "marginBottom": "10px"}),
@@ -801,10 +1059,10 @@ def update_backtest(n_clicks, active_tab):
             f"As the cascade intensified (gas peaked at $118, depth fell to $120M), P(fc|24h) surged to {p_peak_daily:.1%} on Nov 9. "
             "This is the paper's central result: F captures mechanism fragility; the HF tail captures ignition risk. "
             "Both signals are needed for complete early warning."
-        ], style={"fontFamily": "Arial", "fontSize": "13px", "color": "#444", "margin": "0"}),
+        ], style={"fontFamily": "IBM Plex Mono, monospace", "fontSize": "13px", "color": "#c9d1d9", "margin": "0"}),
     ], style={"backgroundColor": bg_colour,
               "border": f"1px solid {s_colour}60", "borderRadius": "6px",
-              "padding": "14px 18px", "fontFamily": "Arial"})
+              "padding": "14px 18px", "fontFamily": "IBM Plex Mono, monospace"})
 
 
     # Chart 1: Two-panel — ETH price (top) + P(flash crash|24h) (bottom)
@@ -918,8 +1176,8 @@ def update_backtest(n_clicks, active_tab):
         fig_tl.add_annotation(
             x=dates[idx], y=label_y_positions[i], yref="paper",
             text=f"<b>{label}</b>", showarrow=False,
-            font=dict(size=8, color="#555"),
-            bgcolor="rgba(255,255,255,0.85)",
+            font=dict(size=8, color="#8b949e"),
+            bgcolor="rgba(13,17,23,0.92)",
             bordercolor="rgba(80,80,80,0.25)", borderwidth=1, borderpad=2,
             xanchor="center",
         )
@@ -937,10 +1195,13 @@ def update_backtest(n_clicks, active_tab):
                  "<sup>Dot colour: green = STABLE (&lt;15%) | orange = ELEVATED RISK (15–80%) | red = CRITICAL (&gt;80%)</sup>",
             font=dict(size=13),
         ),
-        template="plotly_white",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         height=580,
         legend=dict(orientation="h", x=0.5, y=-0.18, xanchor="center", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc", borderwidth=1),
+                    bgcolor="rgba(13,17,23,0.92)", bordercolor="#30363d", borderwidth=1),
         margin=dict(r=120, t=90, b=100),
     )
     fig_tl.update_yaxes(title_text="ETH (USD)", tickprefix="$", range=[eth_min, eth_max], row=1, col=1)
@@ -1032,8 +1293,8 @@ def update_backtest(n_clicks, active_tab):
         fig_cas.add_annotation(
             x=_dates[_nov8_idx], y=1.01, yref="paper",
             text="<b>Nov 8 — no rescue</b>", showarrow=False,
-            font=dict(size=8, color="#c0392b"),
-            bgcolor="rgba(255,255,255,0.85)",
+            font=dict(size=8, color="#ff6b6b"),
+            bgcolor="rgba(13,17,23,0.92)",
             bordercolor="rgba(231,76,60,0.4)", borderwidth=1, borderpad=2,
             xanchor="center",
         )
@@ -1052,10 +1313,13 @@ def update_backtest(n_clicks, active_tab):
                  "F rises when liquidity falls, gas spikes, or book width narrows.</sup>",
             font=dict(size=11),
         ),
-        template="plotly_white",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         height=580,
         legend=dict(orientation="h", x=0.5, y=-0.18, xanchor="center", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc", borderwidth=1),
+                    bgcolor="rgba(13,17,23,0.92)", bordercolor="#30363d", borderwidth=1),
         margin=dict(t=90, b=110, r=30),
     )
     fig_cas.update_yaxes(title_text="Depth ($M)", tickprefix="$", row=1, col=1)
@@ -1152,8 +1416,8 @@ def update_backtest(n_clicks, active_tab):
         fig_cmp.add_annotation(
             x=_dates[_nov8_idx], y=1.01, yref="paper",
             text="<b>Nov 8 — no rescue</b>", showarrow=False,
-            font=dict(size=8, color="#c0392b"),
-            bgcolor="rgba(255,255,255,0.85)",
+            font=dict(size=8, color="#ff6b6b"),
+            bgcolor="rgba(13,17,23,0.92)",
             bordercolor="rgba(231,76,60,0.4)", borderwidth=1, borderpad=2,
             xanchor="center",
         )
@@ -1172,10 +1436,13 @@ def update_backtest(n_clicks, active_tab):
                  "Dot colour: green = STABLE | orange = ELEVATED RISK | red = CRITICAL.</sup>",
             font=dict(size=11),
         ),
-        template="plotly_white",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         height=580,
         legend=dict(orientation="h", x=0.5, y=-0.18, xanchor="center", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc", borderwidth=1),
+                    bgcolor="rgba(13,17,23,0.92)", bordercolor="#30363d", borderwidth=1),
         margin=dict(t=90, b=110, r=80),
         yaxis4=dict(
             title="HF < 1.2 (%)", overlaying="y3", side="right",
@@ -1229,19 +1496,19 @@ def update_backtest(n_clicks, active_tab):
     fig_sp.add_shape(
         type="line", x0=_dates[0], x1=_dates[-1],
         y0=_baseline_P, y1=_baseline_P,
-        line=dict(color="#7f8c8d", dash="dot", width=1.5),
+        line=dict(color="#6e7681", dash="dot", width=1.5),
     )
     fig_sp.add_annotation(
         x=_dates[-1], y=_baseline_P,
         text="Pre-crisis baseline (Nov 1)",
         showarrow=False, xanchor="right", yanchor="bottom",
-        font=dict(size=9, color="#7f8c8d"),
+        font=dict(size=9, color="#8b949e"),
     )
 
     # P line
     fig_sp.add_trace(go.Scatter(
         x=_dates, y=_spec_premium,
-        mode="lines", line=dict(color="#c0392b", width=2.5),
+        mode="lines", line=dict(color="#ff6b6b", width=2.5),
         name="Speculative discount P",
         hovertemplate="<b>%{x}</b><br>P = %{y:.4f}<extra></extra>",
     ))
@@ -1262,11 +1529,11 @@ def update_backtest(n_clicks, active_tab):
         x=_dates[_trough_idx],
         y=_spec_premium[_trough_idx],
         text=f"Peak deepening<br>ΔP = {_deepening_at_trough:.4f}",
-        showarrow=True, arrowhead=2, arrowcolor="#c0392b",
+        showarrow=True, arrowhead=2, arrowcolor="#ff6b6b",
         ax=40, ay=-40,
-        font=dict(size=9, color="#c0392b"),
-        bgcolor="rgba(255,255,255,0.85)",
-        bordercolor="#c0392b", borderwidth=1, borderpad=3,
+        font=dict(size=9, color="#ff6b6b"),
+        bgcolor="rgba(13,17,23,0.92)",
+        bordercolor="#ff6b6b", borderwidth=1, borderpad=3,
     )
 
     # Nov 8 vertical line
@@ -1279,8 +1546,8 @@ def update_backtest(n_clicks, active_tab):
         fig_sp.add_annotation(
             x=_dates[_nov8_idx], y=1.01, yref="paper",
             text="<b>Nov 8 — no rescue</b>", showarrow=False,
-            font=dict(size=8, color="#c0392b"),
-            bgcolor="rgba(255,255,255,0.85)",
+            font=dict(size=8, color="#ff6b6b"),
+            bgcolor="rgba(13,17,23,0.92)",
             bordercolor="rgba(231,76,60,0.4)", borderwidth=1, borderpad=2,
             xanchor="center",
         )
@@ -1299,16 +1566,20 @@ def update_backtest(n_clicks, active_tab):
                  "Discount deepens as φ_m (liquidity) falls and κ (gas) spikes.</sup>",
             font=dict(size=11),
         ),
-        template="plotly_white",
+        template="plotly_dark",
+        paper_bgcolor="#161b22",
+        plot_bgcolor="#0d1117",
+        font=dict(color="#e6edf3", family="IBM Plex Mono, monospace"),
         height=580,
         xaxis=dict(tickangle=-45, tickformat="%b %d"),
         yaxis=dict(title="Speculative discount P  (normalised units)"),
         legend=dict(orientation="h", x=0.5, y=-0.18, xanchor="center", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc", borderwidth=1),
+                    bgcolor="rgba(13,17,23,0.92)", bordercolor="#30363d", borderwidth=1),
         margin=dict(t=90, b=110, r=30),
     )
 
     return callout, fig_tl, fig_cas, fig_cmp, fig_sp, visible_content, hidden
+
 
 
 if __name__ == "__main__":
